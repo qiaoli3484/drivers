@@ -9,12 +9,16 @@ type Bus interface {
 type ssd1306 struct {
 	address uint16
 	bus     Bus
+	width   uint8
+	height  uint8
 }
 
-func Init(bus Bus, address uint16) *ssd1306 {
+func New(bus Bus, address uint16) *ssd1306 {
 	return &ssd1306{
 		bus:     bus,
 		address: address,
+		width:   128,
+		height:  32,
 	}
 }
 
@@ -31,18 +35,27 @@ func (s *ssd1306) write_Data(cmd uint8) {
 
 //清屏函数,清完屏,整个屏幕是黑色的!和没点亮一样
 func (s *ssd1306) Clear() {
-
-	for i := 0; i < 8; i++ {
-		s.write_Cmd(0xb0 + uint8(i)) //设置页地址（0~7）
+	for y := 0; y < 8; y++ {
+		s.write_Cmd(0xb0 + uint8(y)) //设置页地址（0~7）
 		s.write_Cmd(0x00)            //设置显示位置—列低地址
 		s.write_Cmd(0x10)            //设置显示位置—列高地址
-		for n := 0; n < 128; n++ {
+		for x := 0; x < 128; x++ {
 			s.write_Data(0)
 		}
-	} //更新显示
+	}
 }
 
-func (s *ssd1306) Run() {
+//全点亮一样
+func (s *ssd1306) ON() {
+	for y := 0; y < 8; y++ {
+		s.Set_Pixel(0, uint8(y))
+		for x := 0; x < 128; x++ {
+			s.write_Data(0xff)
+		}
+	}
+}
+
+func (s *ssd1306) Init() {
 
 	//SSD1306复位之后，默认的是页寻址方式
 
@@ -92,11 +105,87 @@ func (s *ssd1306) Run() {
 }
 
 //坐标设置：也就是在哪里显示
-func (s *ssd1306) OLED_Set_Pixel(x uint8, y uint8) {
+func (s *ssd1306) Set_Pixel(x, y uint8) {
 	//以下3个寄存器只在页寻址的模式下有效
-	s.write_Cmd(0xb0 + x)
-	s.write_Cmd(((y & 0xf0) >> 4) | 0x10) //列高位地址设置
-	s.write_Cmd(0x0f & y)                 //列低位地址设置
+	s.write_Cmd(0xb0 + y)
+	s.write_Cmd(((x & 0xf0) >> 4) | 0x10) //列高位地址设置
+	s.write_Cmd(0x0f & x)                 //列低位地址设置
+}
+
+func (s *ssd1306) ShowChar(x, y uint8, chr byte, size uint8) {
+	if size == 8 {
+		if x+6 > s.width-1 {
+			x = 0
+			y = y + 1
+		}
+		s.Set_Pixel(x, y)
+		for i := 0; i < 6; i++ {
+			s.write_Data(F6x8[chr-32][i])
+		}
+	} else if size == 16 {
+		if x+6 > s.width-1 {
+			x = 0
+			y = y + 2
+		}
+		s.Set_Pixel(x, y)
+		for i := 0; i < 8; i++ {
+			s.write_Data(F8X16[(int(chr)-32)*16+i])
+		}
+		s.Set_Pixel(x, y+1)
+		for i := 0; i < 8; i++ {
+			s.write_Data(F8X16[(int(chr)-32)*16+i+8])
+		}
+	}
+}
+
+func (s *ssd1306) ShowNum(x, y uint8, num uint32, len, size uint8) {
+
+}
+
+func (s *ssd1306) ShowString(x, y uint8, chr []byte, size uint8) {
+	if size == 8 {
+		for _, b := range chr {
+			s.ShowChar(x, y, b, size)
+			x = x + 6
+			if x > 120 {
+				x = 0
+				y = y + 1
+			}
+			if y > 7 {
+				return
+			}
+		}
+	} else if size == 16 {
+		for _, b := range chr {
+			s.ShowChar(x, y, b, size)
+			x = x + 8
+			if x > 120 {
+				x = 0
+				y = y + 2
+			}
+			if y > 7 {
+				return
+			}
+		}
+	}
+}
+
+func (s *ssd1306) ShowBmp(x0, y0, x1, y1 uint8, Bmp []byte) {
+	s.Set_Pixel(x0, y0)
+	x := x0
+	y := y0
+	for _, b := range Bmp {
+		s.write_Data(b)
+		x++
+		if x > x1 {
+			x = x0
+			y++
+			s.Set_Pixel(x, y)
+		}
+		if y > y1 {
+			return
+		}
+	}
 }
 
 /*
